@@ -1,16 +1,16 @@
 {
   "name": "taskflow-backend",
   "version": "4.0.0",
-  "description": "TaskFlow AI-Assisted Project Management — Backend",
+  "description": "TaskFlow AI Project Management — Backend",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
-    "dev":          "nodemon src/index.js",
-    "start":        "node src/index.js",
-    "db:migrate":   "npx prisma migrate dev",
-    "db:generate":  "npx prisma generate",
-    "db:seed":      "node prisma/seed.js",
-    "db:studio":    "npx prisma studio"
+    "dev":         "nodemon src/index.js",
+    "start":       "node src/index.js",
+    "db:migrate":  "npx prisma migrate dev",
+    "db:generate": "npx prisma generate",
+    "db:seed":     "node prisma/seed.js",
+    "db:studio":   "npx prisma studio"
   },
   "dependencies": {
     "@anthropic-ai/sdk":  "^0.20.0",

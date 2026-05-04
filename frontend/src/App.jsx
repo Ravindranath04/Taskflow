@@ -1,16 +1,18 @@
 // src/App.jsx
 import { useState } from "react";
 import { AppProvider, useApp } from "./store/AppContext";
-import AuthPage  from "./pages/AuthPage";
-import Layout    from "./components/layout/Layout";
-import Dashboard from "./pages/Dashboard";
-import BoardPage from "./pages/BoardPage";
-import { TeamPage, ReportsPage } from "./pages/TeamAndReports";
+import AuthPage    from "./pages/AuthPage";
+import Layout      from "./components/layout/Layout";
+import Dashboard   from "./pages/Dashboard";
+import BoardPage   from "./pages/BoardPage";
+import TeamPage    from "./pages/TeamPage";
+import ProfilePage from "./pages/ProfilePage";
+import { ReportsPage } from "./pages/TeamAndReports";
 
 function LoadingScreen() {
   return (
     <div style={{ height:"100vh", background:"#0f0f13", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Segoe UI',sans-serif", gap:16 }}>
-      <div style={{ width:44, height:44, borderRadius:12, background:"linear-gradient(135deg,#7C3AED,#4F46E5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:700 }}>T</div>
+      <div style={{ width:44, height:44, borderRadius:12, background:"linear-gradient(135deg,#7C3AED,#4F46E5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:700, color:"#fff" }}>T</div>
       <div style={{ color:"#6b6b7e", fontSize:14 }}>Loading TaskFlow…</div>
       <div style={{ display:"flex", gap:5 }}>
         {[0,1,2].map(i => (
@@ -24,20 +26,27 @@ function LoadingScreen() {
 
 function AppShell() {
   const { user, loading } = useApp();
-  const [page, setPage] = useState("dashboard");
+  const [page,          setPage]          = useState("dashboard");
+  const [viewingProfile,setViewingProfile]= useState(null); // userId of profile being viewed
 
-  if (loading)  return <LoadingScreen/>;
-  if (!user)    return <AuthPage/>;
+  if (loading) return <LoadingScreen/>;
+  if (!user)   return <AuthPage/>;
+
+  const handleViewProfile = (userId) => {
+    setViewingProfile(userId);
+    setPage("profile");
+  };
 
   const pages = {
     dashboard: <Dashboard/>,
     board:     <BoardPage/>,
-    team:      <TeamPage/>,
+    team:      <TeamPage onViewProfile={handleViewProfile}/>,
     reports:   <ReportsPage/>,
+    profile:   <ProfilePage userId={viewingProfile || user.id}/>,
   };
 
   return (
-    <Layout page={page} setPage={setPage}>
+    <Layout page={page} setPage={(p) => { setPage(p); if (p !== "profile") setViewingProfile(null); }}>
       {pages[page] || <Dashboard/>}
     </Layout>
   );

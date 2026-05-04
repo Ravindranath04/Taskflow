@@ -1,5 +1,5 @@
-// This is your Prisma schema file
-// Learn more at https://pris.ly/d/prisma-schema
+// Copy this entire content into your Backend/prisma/schema.prisma file
+// (rename from schema.txt to schema.prisma after downloading)
 
 generator client {
   provider = "prisma-client-js"
@@ -10,7 +10,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── USERS ────────────────────────────────────────────────────────────────────
+// ─── USER ─────────────────────────────────────────────────────────────────────
 
 model User {
   id        String   @id @default(cuid())
@@ -23,14 +23,16 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
-  ownedProjects   Project[]       @relation("ProjectOwner")
+  profile         EmployeeProfile?
+  ownedProjects   Project[]        @relation("ProjectOwner")
   projectMembers  ProjectMember[]
-  assignedTasks   Task[]          @relation("TaskAssignee")
-  createdTasks    Task[]          @relation("TaskCreator")
+  assignedTasks   Task[]           @relation("TaskAssignee")
+  createdTasks    Task[]           @relation("TaskCreator")
   comments        Comment[]
   notifications   Notification[]
   refreshTokens   RefreshToken[]
+  taskRatings     TaskRating[]     @relation("RatedBy")
+  receivedRatings TaskRating[]     @relation("RatedUser")
 
   @@map("users")
 }
@@ -40,24 +42,56 @@ enum UserRole {
   MEMBER
 }
 
-// ─── PROJECTS ─────────────────────────────────────────────────────────────────
+// ─── EMPLOYEE PROFILE ─────────────────────────────────────────────────────────
+
+model EmployeeProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title           String?
+  bio             String?
+  department      String?
+  yearsExperience Int      @default(0)
+  joinedAt        DateTime @default(now())
+
+  skills          String[]
+  techStack       String[]
+  domains         String[]
+
+  performanceScore  Float  @default(0)
+  avgTaskRating     Float  @default(0)
+  tasksCompleted    Int    @default(0)
+  tasksOnTime       Int    @default(0)
+  tasksLate         Int    @default(0)
+  currentWorkload   Int    @default(0)
+
+  linkedinUrl     String?
+  githubUrl       String?
+
+  updatedAt       DateTime @updatedAt
+
+  @@map("employee_profiles")
+}
+
+// ─── PROJECT ──────────────────────────────────────────────────────────────────
 
 model Project {
-  id          String        @id @default(cuid())
-  name        String
-  description String?
-  color       String        @default("#7C3AED")
-  status      ProjectStatus @default(PLANNING)
-  deadline    DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id               String        @id @default(cuid())
+  name             String
+  description      String?
+  color            String        @default("#7C3AED")
+  status           ProjectStatus @default(PLANNING)
+  deadline         DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  completionRating Int?
+  completionNotes  String?
 
-  // Relations
-  ownerId String
-  owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id])
-
-  members ProjectMember[]
-  tasks   Task[]
+  ownerId  String
+  owner    User            @relation("ProjectOwner", fields: [ownerId], references: [id])
+  members  ProjectMember[]
+  tasks    Task[]
 
   @@map("projects")
 }
@@ -71,21 +105,20 @@ enum ProjectStatus {
 }
 
 model ProjectMember {
-  id        String   @id @default(cuid())
-  role      String   @default("member")
-  joinedAt  DateTime @default(now())
+  id       String   @id @default(cuid())
+  role     String   @default("member")
+  joinedAt DateTime @default(now())
 
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  userId String
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, userId])
   @@map("project_members")
 }
 
-// ─── TASKS ────────────────────────────────────────────────────────────────────
+// ─── TASK ─────────────────────────────────────────────────────────────────────
 
 model Task {
   id          String       @id @default(cuid())
@@ -98,17 +131,20 @@ model Task {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  // Relations
-  projectId String
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requiredSkills  String[]
+  requiredDomains String[]
+  autoAssigned    Boolean  @default(false)
+  assignmentScore Float?
 
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   assigneeId String?
-  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
-
-  creatorId String
-  creator   User   @relation("TaskCreator", fields: [creatorId], references: [id])
+  assignee   User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creatorId  String
+  creator    User     @relation("TaskCreator", fields: [creatorId], references: [id])
 
   comments Comment[]
+  ratings  TaskRating[]
 
   @@map("tasks")
 }
@@ -127,7 +163,26 @@ enum TaskPriority {
   LOW
 }
 
-// ─── COMMENTS ─────────────────────────────────────────────────────────────────
+// ─── TASK RATING ──────────────────────────────────────────────────────────────
+
+model TaskRating {
+  id        String   @id @default(cuid())
+  stars     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  taskId      String
+  task        Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  ratedUserId String
+  ratedUser   User   @relation("RatedUser", fields: [ratedUserId], references: [id])
+  ratedById   String
+  ratedBy     User   @relation("RatedBy", fields: [ratedById], references: [id])
+
+  @@unique([taskId, ratedById])
+  @@map("task_ratings")
+}
+
+// ─── COMMENT ──────────────────────────────────────────────────────────────────
 
 model Comment {
   id        String   @id @default(cuid())
@@ -135,16 +190,15 @@ model Comment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  taskId String
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
+  taskId   String
+  task     Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
 
   @@map("comments")
 }
 
-// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+// ─── NOTIFICATION ─────────────────────────────────────────────────────────────
 
 model Notification {
   id        String   @id @default(cuid())
@@ -152,6 +206,7 @@ model Notification {
   title     String
   message   String
   read      Boolean  @default(false)
+  link      String?
   createdAt DateTime @default(now())
 
   userId String
@@ -160,7 +215,7 @@ model Notification {
   @@map("notifications")
 }
 
-// ─── AUTH ─────────────────────────────────────────────────────────────────────
+// ─── REFRESH TOKEN ────────────────────────────────────────────────────────────
 
 model RefreshToken {
   id        String   @id @default(cuid())

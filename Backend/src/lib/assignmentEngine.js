@@ -1,122 +1,139 @@
 // src/lib/assignmentEngine.js
-// Smart Auto-Assignment Engine
-// Score = (skill match × 0.5) + (low workload × 0.3) + (past success rate × 0.2)
+// ✅ Uses Google Gemini API (FREE)
 
-const prisma  = require("./prisma");
-const Anthropic = require("@anthropic-ai/sdk");
+const prisma = require("./prisma");
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// ─── Gemini helper ────────────────────────────────────────────────────────────
+async function gemini(prompt) {
+  const url  = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const res  = await fetch(url, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role:"user", parts:[{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 200, temperature: 0.5 },
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || "Gemini error");
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
 
 // ─── SKILL KEYWORDS MAP ───────────────────────────────────────────────────────
 const ROLE_SKILLS = {
-  "Frontend Dev":  ["frontend", "ui", "react", "css", "design", "component", "responsive"],
-  "Backend Dev":   ["backend", "api", "database", "auth", "server", "node", "prisma", "sql"],
-  "Designer":      ["design", "figma", "ui", "ux", "mockup", "wireframe", "layout"],
-  "DevOps":        ["devops", "ci", "cd", "deploy", "docker", "pipeline", "infra", "cloud"],
-  "PM":            ["docs", "planning", "sprint", "roadmap", "report", "meeting", "review"],
-  "Full Stack":    ["frontend", "backend", "api", "react", "node", "database"],
-  "QA":            ["test", "bug", "qa", "quality", "automation", "selenium"],
+  "Frontend Dev":  ["frontend","ui","react","css","design","component","responsive","typescript"],
+  "Backend Dev":   ["backend","api","database","auth","server","node","prisma","sql","graphql"],
+  "Designer":      ["design","figma","ui","ux","mockup","wireframe","layout","prototype"],
+  "DevOps":        ["devops","ci","cd","deploy","docker","pipeline","infra","cloud","aws","kubernetes"],
+  "PM":            ["docs","planning","sprint","roadmap","report","meeting","review","management"],
+  "Full Stack":    ["frontend","backend","api","react","node","database"],
+  "QA":            ["test","bug","qa","quality","automation"],
 };
 
-// ─── SCORE A SINGLE MEMBER FOR A TASK ─────────────────────────────────────────
-async function scoreMember(member, task, projectId) {
-  // 1. Skill match score (0–1)
-  const memberKeywords = ROLE_SKILLS[member.role] || [];
-  const taskText = `${task.title} ${task.description || ""} ${(task.tags || []).join(" ")}`.toLowerCase();
-  const matchedKeywords = memberKeywords.filter(k => taskText.includes(k));
-  const skillScore = memberKeywords.length > 0
-    ? matchedKeywords.length / memberKeywords.length
-    : 0.3; // neutral if role unknown
+// ─── SCORE ONE MEMBER ─────────────────────────────────────────────────────────
+async function scoreMember(user, task) {
+  const profile = user.profile;
 
-  // 2. Workload score (0–1) — fewer open tasks = higher score
-  const openTasks = await prisma.task.count({
-    where: { assigneeId: member.id, status: { not: "DONE" } },
-  });
-  const workloadScore = Math.max(0, 1 - openTasks / 10); // 0 tasks = 1.0, 10+ tasks = 0.0
+  // Use profile skills if available, otherwise fall back to role keywords
+  const memberSkills = profile?.skills?.map(s => s.toLowerCase()) ||
+                       ROLE_SKILLS[user.role || ""] || [];
+  const memberDomains = profile?.domains?.map(d => d.toLowerCase()) || [];
 
-  // 3. Past success rate (0–1) — completed tasks of similar type
-  const completedSimilar = await prisma.task.count({
-    where: {
-      assigneeId: member.id,
-      status: "DONE",
-      OR: [
-        { tags: { hasSome: task.tags || [] } },
-        { title: { contains: task.tags?.[0] || "", mode: "insensitive" } },
-      ],
-    },
-  });
-  const totalCompleted = await prisma.task.count({
-    where: { assigneeId: member.id, status: "DONE" },
-  });
-  const successRate = totalCompleted > 0
-    ? Math.min(1, completedSimilar / Math.max(totalCompleted * 0.3, 1))
-    : 0.3; // neutral for new members
+  const reqSkills  = (task.requiredSkills  || task.tags || []).map(s => s.toLowerCase());
+  const reqDomains = (task.requiredDomains || []).map(d => d.toLowerCase());
 
-  // ── Final weighted score ──
-  const finalScore = (skillScore * 0.5) + (workloadScore * 0.3) + (successRate * 0.2);
+  // 1. Skill match (0-1)
+  const skillMatches  = reqSkills.length
+    ? reqSkills.filter(s => memberSkills.some(ms => ms.includes(s) || s.includes(ms))).length / reqSkills.length
+    : 0.3;
+  const domainMatches = reqDomains.length
+    ? reqDomains.filter(d => memberDomains.includes(d)).length / reqDomains.length
+    : 0.3;
+  const skillScore = (skillMatches * 0.6) + (domainMatches * 0.4);
+
+  // 2. Experience score (0-1)
+  const expScore = profile ? Math.min(1, (profile.yearsExperience || 0) / 8) : 0.3;
+
+  // 3. Workload score (0-1) — fewer open tasks = higher score
+  const openTasks     = profile?.currentWorkload || await prisma.task.count({
+    where: { assigneeId: user.id, status: { not: "DONE" } },
+  });
+  const workloadScore = Math.max(0, 1 - openTasks / 8);
+
+  // 4. Performance score (0-1)
+  const perfScore = profile ? (profile.performanceScore || 50) / 100 : 0.5;
+
+  // 5. On-time rate (0-1)
+  const onTimeRate = profile && profile.tasksCompleted > 0
+    ? profile.tasksOnTime / profile.tasksCompleted
+    : 0.5;
+
+  // FINAL: skill(40%) + exp(10%) + workload(25%) + perf(15%) + ontime(10%)
+  const finalScore =
+    (skillScore    * 0.40) +
+    (expScore      * 0.10) +
+    (workloadScore * 0.25) +
+    (perfScore     * 0.15) +
+    (onTimeRate    * 0.10);
 
   return {
-    memberId:   member.id,
-    memberName: member.name,
-    role:       member.role,
+    memberId:   user.id,
+    memberName: user.name,
+    role:       profile?.title || user.role || "Team Member",
     score:      Math.round(finalScore * 100) / 100,
     breakdown: {
-      skillScore:   Math.round(skillScore * 100),
-      workloadScore:Math.round(workloadScore * 100),
-      successRate:  Math.round(successRate * 100),
+      skillScore:    Math.round(skillScore    * 100),
+      expScore:      Math.round(expScore      * 100),
+      workloadScore: Math.round(workloadScore * 100),
+      perfScore:     Math.round(perfScore     * 100),
+      onTimeRate:    Math.round(onTimeRate    * 100),
       openTasks,
-      completedSimilar,
-      matchedKeywords,
+      yearsExp:      profile?.yearsExperience || 0,
+      avgRating:     profile?.avgTaskRating   || 0,
+      matchedSkills: reqSkills.filter(s => memberSkills.some(ms => ms.includes(s))),
     },
   };
 }
 
-// ─── MAIN: AUTO-ASSIGN A TASK ─────────────────────────────────────────────────
+// ─── AUTO-ASSIGN A TASK ───────────────────────────────────────────────────────
 async function autoAssignTask(taskId, projectId) {
   try {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) throw new Error("Task not found");
 
-    // Get all project members
-    const projectMembers = await prisma.projectMember.findMany({
-      where: { projectId },
-      include: { user: true },
+    const members = await prisma.projectMember.findMany({
+      where:   { projectId },
+      include: { user: { include: { profile: true } } },
     });
+    if (!members.length) return null;
 
-    if (projectMembers.length === 0) return null;
-
-    // Score every member
-    const scores = await Promise.all(
-      projectMembers.map(pm => scoreMember(pm.user, task, projectId))
-    );
-
-    // Sort by score descending
+    const scores = await Promise.all(members.map(m => scoreMember(m.user, task)));
     scores.sort((a, b) => b.score - a.score);
     const best = scores[0];
 
-    // Assign the task
     const updated = await prisma.task.update({
-      where: { id: taskId },
-      data:  { assigneeId: best.memberId },
-      include: {
-        assignee: { select: { id:true, name:true, email:true, avatar:true, color:true } },
-        project:  { select: { id:true, name:true } },
-      },
+      where:   { id: taskId },
+      data:    { assigneeId: best.memberId, autoAssigned: true, assignmentScore: best.score },
+      include: { assignee: { select: { id:true, name:true, email:true, avatar:true, color:true } }, project: { select: { id:true, name:true } } },
     });
 
-    // Create notification for the assignee
+    // Update workload count
+    await prisma.employeeProfile.updateMany({
+      where: { userId: best.memberId },
+      data:  { currentWorkload: { increment: 1 } },
+    });
+
+    // Notify assignee
     await prisma.notification.create({
       data: {
         userId:  best.memberId,
         type:    "TASK_ASSIGNED",
-        title:   "New task assigned to you",
-        message: `"${task.title}" was auto-assigned to you based on your skills and availability.`,
+        title:   "🤖 Task auto-assigned to you",
+        message: `"${task.title}" was assigned by AI based on your skills (${best.breakdown.matchedSkills.join(", ") || "domain match"}) and availability.`,
       },
     });
 
     console.log(`[AutoAssign] "${task.title}" → ${best.memberName} (score: ${best.score})`);
-    console.log(`[AutoAssign] Breakdown:`, best.breakdown);
-
     return { task: updated, scores, assignedTo: best };
   } catch (err) {
     console.error("[AutoAssign] Error:", err.message);
@@ -124,37 +141,28 @@ async function autoAssignTask(taskId, projectId) {
   }
 }
 
-// ─── GET ASSIGNMENT SUGGESTION (without actually assigning) ───────────────────
+// ─── SUGGEST ASSIGNMENT (without assigning) ───────────────────────────────────
 async function suggestAssignment(taskId, projectId) {
-  const task = await prisma.task.findUnique({ where: { id: taskId } });
+  const task    = await prisma.task.findUnique({ where: { id: taskId } });
   const members = await prisma.projectMember.findMany({
-    where: { projectId },
-    include: { user: true },
+    where:   { projectId },
+    include: { user: { include: { profile: true } } },
   });
 
-  const scores = await Promise.all(
-    members.map(pm => scoreMember(pm.user, task, projectId))
-  );
+  const scores = await Promise.all(members.map(m => scoreMember(m.user, task)));
   scores.sort((a, b) => b.score - a.score);
 
-  // Ask Claude to explain the recommendation in natural language
-  const prompt = `Task: "${task.title}" (tags: ${(task.tags||[]).join(", ")}, priority: ${task.priority})
-Top candidates:
-${scores.slice(0,3).map((s,i) => `${i+1}. ${s.memberName} (${s.role}) - score: ${s.score} | open tasks: ${s.breakdown.openTasks} | skill match: ${s.breakdown.skillScore}% | past success: ${s.breakdown.successRate}%`).join("\n")}
+  const prompt = `Task: "${task.title}" requires: ${(task.requiredSkills || task.tags || []).join(", ")}
 
-In 2 sentences, explain why ${scores[0].memberName} is the best choice for this task.`;
+Top 3 candidates:
+${scores.slice(0,3).map((s,i) =>
+  `${i+1}. ${s.memberName} (${s.role}) — score: ${s.score} | skills: ${s.breakdown.skillScore}% | ${s.breakdown.yearsExp}yrs exp | ${s.breakdown.openTasks} open tasks | rating: ${s.breakdown.avgRating}⭐ | on-time: ${s.breakdown.onTimeRate}%`
+).join("\n")}
 
-  const res = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 200,
-    messages: [{ role:"user", content: prompt }],
-  });
+In 2 sentences explain why ${scores[0].memberName} is the best fit for this task.`;
 
-  return {
-    scores,
-    recommended: scores[0],
-    explanation: res.content[0].text,
-  };
+  const explanation = await gemini(prompt);
+  return { scores, recommended: scores[0], explanation };
 }
 
 module.exports = { autoAssignTask, suggestAssignment, scoreMember };
