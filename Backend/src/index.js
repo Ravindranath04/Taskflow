@@ -73,7 +73,7 @@ app.listen(PORT, () => {
 ╠════════════════════════════════════════╣
 ║  🚀 Running on  http://localhost:${PORT}  ║
 ║  🗄️  Database   PostgreSQL + Prisma    ║
-║  🤖 AI          Claude (Anthropic)     ║
+║  🤖 AI          Gemini (Google)        ║
 ║  🌍 Env         ${(process.env.NODE_ENV||"development").padEnd(22)}║
 ╚════════════════════════════════════════╝
   `);

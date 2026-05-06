@@ -2,36 +2,113 @@
 import { useApp } from "../store/AppContext";
 
 const PCOLOR = { critical:"#ef4444", high:"#f97316", medium:"#a78bfa", low:"#22c55e" };
-const SCOLOR = { todo:"#6b7280", inprogress:"#3b82f6", "in_progress":"#3b82f6", review:"#f59e0b", done:"#22c55e" };
+const SCOLOR = { todo:"#6b7280", inprogress:"#3b82f6", in_progress:"#3b82f6", review:"#f59e0b", done:"#22c55e" };
 
 export default function Dashboard() {
-  const { projects, tasks, members, setActiveProject } = useApp();
+  const { projects, tasks, myTasks, members, setActiveProject, user } = useApp();
 
   const normalize = s => s?.toLowerCase().replace("_","") || "";
-  const done    = tasks.filter(t => normalize(t.status) === "done").length;
-  const inp     = tasks.filter(t => ["inprogress","in_progress"].includes(normalize(t.status))).length;
-  const crit    = tasks.filter(t => t.priority?.toLowerCase() === "critical").length;
+  const done = tasks.filter(t => normalize(t.status) === "done").length;
+  const inp  = tasks.filter(t => ["inprogress","in_progress"].includes(normalize(t.status))).length;
+  const crit = tasks.filter(t => t.priority?.toLowerCase() === "critical").length;
+
+  // My tasks: use myTasks from context (tasks assigned to me across all projects)
+  const assignedToMe = myTasks.filter(t => normalize(t.status) !== "done");
+  const myDone       = myTasks.filter(t => normalize(t.status) === "done").length;
 
   return (
     <div style={{ maxWidth:1050 }}>
       <div style={{ marginBottom:26 }}>
-        <h1 style={{ fontSize:22, fontWeight:800, letterSpacing:"-0.5px", margin:"0 0 3px", color:"#e2e2e8" }}>Dashboard</h1>
-        <p style={{ color:"#6b6b7e", fontSize:13, margin:0 }}>Your projects at a glance</p>
+        <h1 style={{ fontSize:22, fontWeight:800, letterSpacing:"-0.5px", margin:"0 0 3px", color:"#e2e2e8" }}>
+          Dashboard
+        </h1>
+        <p style={{ color:"#6b6b7e", fontSize:13, margin:0 }}>
+          Welcome back, {user?.name?.split(" ")[0]} 👋
+        </p>
       </div>
 
       {/* Stats */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
         {[
-          { l:"Total Tasks",  v:tasks.length, c:"#e2e2e8" },
-          { l:"In Progress",  v:inp,          c:"#3b82f6" },
-          { l:"Completed",    v:done,         c:"#22c55e" },
-          { l:"Critical",     v:crit,         c:"#ef4444" },
+          { l:"Total Tasks",   v:tasks.length, c:"#e2e2e8" },
+          { l:"In Progress",   v:inp,          c:"#3b82f6" },
+          { l:"Completed",     v:done,         c:"#22c55e" },
+          { l:"Critical",      v:crit,         c:"#ef4444" },
         ].map(s => (
           <div key={s.l} style={{ background:"#16161d", border:"1px solid #2a2a35", borderRadius:12, padding:"16px 18px" }}>
             <div style={{ fontSize:11, color:"#6b6b7e", marginBottom:5 }}>{s.l}</div>
             <div style={{ fontSize:26, fontWeight:800, color:s.c, letterSpacing:"-0.5px" }}>{s.v}</div>
           </div>
         ))}
+      </div>
+
+      {/* ── MY ASSIGNED TASKS (shown to everyone, most useful for non-admins) ── */}
+      <div style={{ marginBottom:24 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+          <h2 style={{ fontSize:15, fontWeight:700, margin:0, color:"#e2e2e8" }}>
+            My Assigned Tasks
+          </h2>
+          <div style={{ display:"flex", gap:8 }}>
+            <span style={{ fontSize:11, background:"#1e1e2e", color:"#3b82f6", padding:"2px 9px", borderRadius:20, border:"1px solid #2a2a35" }}>
+              {assignedToMe.length} active
+            </span>
+            <span style={{ fontSize:11, background:"#1e1e2e", color:"#22c55e", padding:"2px 9px", borderRadius:20, border:"1px solid #2a2a35" }}>
+              {myDone} done
+            </span>
+          </div>
+        </div>
+
+        {assignedToMe.length === 0 ? (
+          <div style={{ background:"#16161d", border:"1px solid #2a2a35", borderRadius:14, padding:"28px", textAlign:"center", color:"#3a3a4e", fontSize:13 }}>
+            No active tasks assigned to you yet
+          </div>
+        ) : (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {assignedToMe.map(t => {
+              const p  = projects.find(x => x.id === t.projectId);
+              const st = normalize(t.status);
+              const priorityBg = {
+                critical:"#2d0a0a", high:"#1c1007", medium:"#1a0e2e", low:"#052e16"
+              };
+              const priorityBorder = {
+                critical:"#7f1d1d", high:"#7c3d0a", medium:"#3730a3", low:"#15803d"
+              };
+              return (
+                <div key={t.id}
+                  style={{ background: priorityBg[t.priority?.toLowerCase()] || "#16161d", border:`1px solid ${priorityBorder[t.priority?.toLowerCase()]||"#2a2a35"}`, borderRadius:12, padding:"14px 16px" }}>
+                  <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:8 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:"#e2e2e8", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:3 }}>
+                        {t.title}
+                      </div>
+                      <div style={{ fontSize:11, color:"#6b6b7e", display:"flex", alignItems:"center", gap:6 }}>
+                        {p && (
+                          <>
+                            <div style={{ width:6, height:6, borderRadius:"50%", background:p.color }}/>
+                            <span>{p.name}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <span style={{ fontSize:10, padding:"2px 8px", borderRadius:20, background:"#1a1a24", color:PCOLOR[t.priority?.toLowerCase()]||"#6b6b7e", border:"1px solid #2a2a35", flexShrink:0, marginLeft:8 }}>
+                      {t.priority?.toLowerCase()}
+                    </span>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                    <span style={{ fontSize:11, padding:"3px 9px", borderRadius:20, background:"#1a1a24", color:SCOLOR[st]||"#6b6b7e", border:"1px solid #2a2a35" }}>
+                      ● {st.replace("inprogress","in progress")}
+                    </span>
+                    {t.dueDate && (
+                      <span style={{ fontSize:10, color: new Date(t.dueDate) < new Date() ? "#ef4444" : "#6b6b7e" }}>
+                        Due {new Date(t.dueDate).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Projects */}
@@ -47,10 +124,10 @@ export default function Dashboard() {
         ) : (
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
             {projects.map(p => {
-              const pt = tasks.filter(t => t.projectId === p.id);
+              const pt    = tasks.filter(t => t.projectId === p.id);
               const pdone = pt.filter(t => normalize(t.status) === "done").length;
               const progress = p.progress ?? (pt.length ? Math.round(pdone/pt.length*100) : 0);
-              const pm = (p.members || []).slice(0, 4);
+              const pm    = (p.members || []).slice(0, 4);
               return (
                 <div key={p.id} onClick={() => setActiveProject(p.id)}
                   style={{ background:"#16161d", border:"1px solid #2a2a35", borderRadius:14, padding:18, cursor:"pointer", transition:"all .15s" }}
@@ -78,7 +155,11 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div style={{ display:"flex", gap:8, marginBottom:12 }}>
-                    {[{l:"Total",v:pt.length},{l:"Active",v:pt.filter(t=>["inprogress","in_progress"].includes(normalize(t.status))).length,c:"#3b82f6"},{l:"Done",v:pdone,c:"#22c55e"}].map(s => (
+                    {[
+                      { l:"Total",  v:pt.length },
+                      { l:"Active", v:pt.filter(t=>["inprogress","in_progress"].includes(normalize(t.status))).length, c:"#3b82f6" },
+                      { l:"Done",   v:pdone, c:"#22c55e" },
+                    ].map(s => (
                       <div key={s.l} style={{ flex:1, background:"#1a1a24", border:"1px solid #2a2a35", borderRadius:7, padding:"5px 0", textAlign:"center" }}>
                         <div style={{ fontSize:15, fontWeight:700, color:s.c||"#e2e2e8" }}>{s.v}</div>
                         <div style={{ fontSize:10, color:"#6b6b7e" }}>{s.l}</div>
@@ -107,8 +188,8 @@ export default function Dashboard() {
         <div style={{ background:"#16161d", border:"1px solid #2a2a35", borderRadius:14, padding:18 }}>
           <div style={{ fontWeight:700, fontSize:14, marginBottom:14, color:"#e2e2e8" }}>Recent Tasks</div>
           {tasks.slice(0, 6).map(t => {
-            const m = t.assigneeObj || members.find(x => x.id === t.assigneeId);
-            const p = projects.find(x => x.id === t.projectId);
+            const m  = t.assigneeObj || members.find(x => x.id === t.assigneeId);
+            const p  = projects.find(x => x.id === t.projectId);
             const st = normalize(t.status);
             return (
               <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:"1px solid #1e1e2e" }}>

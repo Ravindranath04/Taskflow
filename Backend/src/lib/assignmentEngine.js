@@ -5,7 +5,7 @@ const prisma = require("./prisma");
 
 // ─── Gemini helper ────────────────────────────────────────────────────────────
 async function gemini(prompt) {
-  const url  = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const url  = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
   const res  = await fetch(url, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
@@ -52,10 +52,10 @@ async function scoreMember(user, task) {
   const skillScore = (skillMatches * 0.6) + (domainMatches * 0.4);
 
   // 2. Experience score (0-1)
-  const expScore = profile ? Math.min(1, (profile.yearsExperience || 0) / 8) : 0.3;
+  const expScore = profile ? Math.min(1, (profile.yearsExperience || 0) / 10) : 0.3;
 
   // 3. Workload score (0-1) — fewer open tasks = higher score
-  const openTasks     = profile?.currentWorkload || await prisma.task.count({
+  const openTasks     = profile?.currentWorkload ?? await prisma.task.count({
     where: { assigneeId: user.id, status: { not: "DONE" } },
   });
   const workloadScore = Math.max(0, 1 - openTasks / 8);
@@ -70,8 +70,8 @@ async function scoreMember(user, task) {
 
   // FINAL: skill(40%) + exp(10%) + workload(25%) + perf(15%) + ontime(10%)
   const finalScore =
-    (skillScore    * 0.40) +
-    (expScore      * 0.10) +
+    (skillScore    * 0.35) +
+    (expScore      * 0.15) +
     (workloadScore * 0.25) +
     (perfScore     * 0.15) +
     (onTimeRate    * 0.10);

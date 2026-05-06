@@ -12,11 +12,86 @@ const NAV = [
   { id:"profile",   label:"My Profile", icon:"◉" },
 ];
 
+function ProjectModal({ onClose, createProject }) {
+  const [form, setForm] = useState({ name:"", description:"", deadline:"", memberEmails:"", color:"#7C3AED" });
+  const [saving, setSaving] = useState(false);
+
+  const create = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      await createProject({
+        name: form.name,
+        description: form.description,
+        color: form.color,
+        deadline: form.deadline || null,
+        memberEmails: form.memberEmails,
+      });
+      onClose();
+    } catch (err) {
+      console.error("Create project failed", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:1100, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width:440, background:"#16161d", border:"1px solid #2a2a35", borderRadius:16, padding:24 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+          <div>
+            <div style={{ fontSize:16, fontWeight:800, color:"#e2e8f0" }}>Create Project</div>
+            <div style={{ fontSize:12, color:"#6b7280" }}>Add a deadline and team members.</div>
+          </div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:"#6b7280", fontSize:20, cursor:"pointer" }}>×</button>
+        </div>
+        <div style={{ display:"grid", gap:12 }}>
+          <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+            placeholder="Project name"
+            style={{ background:"#111827", border:"1px solid #2a2a35", borderRadius:10, padding:"12px 14px", color:"#e2e8f0", fontSize:13, outline:"none" }} />
+          <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+            placeholder="Description"
+            rows={3}
+            style={{ background:"#111827", border:"1px solid #2a2a35", borderRadius:10, padding:"12px 14px", color:"#e2e8f0", fontSize:13, resize:"vertical", outline:"none" }} />
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <input type="date" value={form.deadline} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))}
+              style={{ background:"#111827", border:"1px solid #2a2a35", borderRadius:10, padding:"12px 14px", color:"#e2e8f0", fontSize:13, outline:"none" }} />
+            <input value={form.memberEmails} onChange={e => setForm(p => ({ ...p, memberEmails: e.target.value }))}
+              placeholder="Members (comma-separated emails)"
+              style={{ background:"#111827", border:"1px solid #2a2a35", borderRadius:10, padding:"12px 14px", color:"#e2e8f0", fontSize:13, outline:"none" }} />
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 60px", gap:10, width:"100%" }}>
+              <input value={form.color} onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
+                placeholder="#7C3AED"
+                style={{ background:"#111827", border:"1px solid #2a2a35", borderRadius:10, padding:"12px 14px", color:"#e2e8f0", fontSize:13, outline:"none" }} />
+              <input type="color" value={form.color} onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
+                style={{ width:"100%", borderRadius:10, border:"1px solid #2a2a35", cursor:"pointer" }} />
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10, marginTop:10 }}>
+            <button onClick={create} disabled={saving}
+              style={{ flex:1, padding:"11px 14px", borderRadius:10, background:saving?"#2a2a35":"#6d28d9", border:"none", color:"#fff", cursor:saving?"default":"pointer", fontWeight:700 }}>
+              {saving ? "Creating…" : "Create Project"}
+            </button>
+            <button onClick={onClose}
+              style={{ padding:"11px 14px", borderRadius:10, background:"#111827", border:"1px solid #2a2a35", color:"#9ca3af", cursor:"pointer", fontWeight:700 }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Layout({ children, page, setPage }) {
-  const { projects, activeProject, setActiveProject, user, logout } = useApp();
-  const [aiOpen,       setAiOpen]       = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
+  const { projects, activeProject, setActiveProject, user, logout, createProject, deleteProject } = useApp();
+  const [aiOpen,           setAiOpen]           = useState(false);
+  const [showUserMenu,     setShowUserMenu]     = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
   const active = projects.find(p => p.id === activeProject);
+  const canDeleteProject = active && (user?.role === "ADMIN" || active.owner?.id === user?.id);
 
   return (
     <div style={{display:"flex",height:"100vh",background:"#0f0f13",color:"#e2e2e8",fontFamily:"'DM Sans','Segoe UI',sans-serif",overflow:"hidden"}}>
@@ -62,7 +137,7 @@ export default function Layout({ children, page, setPage }) {
             style={{width:"100%",padding:"9px 11px",borderRadius:10,cursor:"pointer",background:"linear-gradient(135deg,#1a1030,#0d1a2e)",border:"1px solid #3d2a6e",color:"#c4b5fd",display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:700}}>
             <span style={{fontSize:14}}>✦</span>
             <span>AI Assistant</span>
-            <span style={{marginLeft:"auto",background:"#4c1d95",color:"#ddd6fe",fontSize:9,padding:"1px 5px",borderRadius:8}}>CLAUDE</span>
+            <span style={{marginLeft:"auto",background:"#4c1d95",color:"#ddd6fe",fontSize:9,padding:"1px 5px",borderRadius:8}}>GEMINI</span>
           </button>
         </div>
 
@@ -103,6 +178,16 @@ export default function Layout({ children, page, setPage }) {
               </div>
             )}
           </div>
+          <button onClick={()=>setShowProjectModal(true)}
+            style={{padding:"5px 13px",borderRadius:8,background:"#111827",border:"1px solid #2a2a35",color:"#a5b4fc",cursor:"pointer",fontSize:12,fontWeight:500,display:"flex",alignItems:"center",gap:5}}>
+            + New Project
+          </button>
+          {canDeleteProject && (
+            <button onClick={async () => { if (active) await deleteProject(active.id); }}
+              style={{padding:"5px 13px",borderRadius:8,background:"#3b0d0d",border:"1px solid #7f1d1d",color:"#fecaca",cursor:"pointer",fontSize:12,fontWeight:500}}>
+              Delete Project
+            </button>
+          )}
           <NotificationBell/>
           <button onClick={()=>setAiOpen(!aiOpen)}
             style={{padding:"5px 13px",borderRadius:8,background:aiOpen?"#2d1b69":"#1a1a24",border:`1px solid ${aiOpen?"#6d28d9":"#2a2a35"}`,color:aiOpen?"#c4b5fd":"#8888a0",cursor:"pointer",fontSize:12,fontWeight:500,display:"flex",alignItems:"center",gap:5}}>
@@ -116,6 +201,9 @@ export default function Layout({ children, page, setPage }) {
             <div style={{width:370,borderLeft:"1px solid #2a2a35",flexShrink:0}}>
               <AIPanel onClose={()=>setAiOpen(false)}/>
             </div>
+          )}
+          {showProjectModal && (
+            <ProjectModal onClose={() => setShowProjectModal(false)} createProject={createProject} />
           )}
         </div>
       </main>

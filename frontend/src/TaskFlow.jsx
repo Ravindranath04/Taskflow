@@ -20,7 +20,7 @@ const TASKS_INIT = [
   { id:"t1",  projectId:"p1", title:"Design system setup",    description:"Create Figma component library", status:"done",       priority:"high",     assignee:"m3", tags:["design"],           createdAt:"2025-05-01" },
   { id:"t2",  projectId:"p1", title:"Auth API endpoints",     description:"JWT login & register routes",    status:"done",       priority:"high",     assignee:"m2", tags:["backend","auth"],    createdAt:"2025-05-02" },
   { id:"t3",  projectId:"p1", title:"Kanban board UI",        description:"Drag-and-drop task board",       status:"inprogress", priority:"high",     assignee:"m1", tags:["frontend"],          createdAt:"2025-05-03" },
-  { id:"t4",  projectId:"p1", title:"AI chat integration",    description:"Connect Claude API to tasks",    status:"inprogress", priority:"critical", assignee:"m2", tags:["ai","backend"],      createdAt:"2025-05-04" },
+  { id:"t4",  projectId:"p1", title:"AI chat integration",    description:"Connect Gemini API to tasks",    status:"inprogress", priority:"critical", assignee:"m2", tags:["ai","backend"],      createdAt:"2025-05-04" },
   { id:"t5",  projectId:"p1", title:"Dashboard analytics",    description:"Charts for project metrics",     status:"todo",       priority:"medium",   assignee:"m1", tags:["frontend"],          createdAt:"2025-05-05" },
   { id:"t6",  projectId:"p1", title:"Notification system",    description:"Email + in-app notifications",  status:"todo",       priority:"low",      assignee:"m5", tags:["backend"],           createdAt:"2025-05-06" },
   { id:"t7",  projectId:"p1", title:"User settings page",     description:"Profile and preferences",        status:"todo",       priority:"medium",   assignee:"m3", tags:["frontend"],          createdAt:"2025-05-07" },
@@ -55,7 +55,7 @@ function AppProvider({ children }) {
   const [active,   setActive]     = useState("p1");
   const [aiMsgs,   setAiMsgs]     = useState([{
     role:"assistant",
-    content:"Hi! I'm your AI assistant powered by Claude.\n\n**What I can do:**\n• **Generate tasks** from a feature description\n• **Summarize** project status and blockers\n• **Suggest assignments** based on workload\n• **Prioritize** your backlog\n\nTry: *\"Generate tasks for a user authentication feature\"*",
+    content:"Hi! I'm your AI assistant powered by Gemini.\n\n**What I can do:**\n• **Generate tasks** from a feature description\n• **Summarize** project status and blockers\n• **Suggest assignments** based on workload\n• **Prioritize** your backlog\n\nTry: *\"Generate tasks for a user authentication feature\"*",
   }]);
 
   const addTask    = useCallback(t  => { const n={id:`t${++uid}`,createdAt:new Date().toISOString().slice(0,10),status:"todo",priority:"medium",tags:[],...t}; setTasks(p=>[...p,n]); return n; },[]);
@@ -164,13 +164,12 @@ function AIPanel({ onClose }) {
     const msgs=[...aiMsgs,userMsg];
     setAiMsgs(msgs); setInput(""); setLoading(true);
     try {
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
+      const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.REACT_APP_GEMINI_API_KEY}`,{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:SYSTEM+ctx(),
-          messages:msgs.map(m=>({role:m.role,content:m.content}))})
+        body:JSON.stringify({contents:[{role:"user",parts:[{text:(SYSTEM+ctx())+"\n\n"+msgs.map(m=>m.content).join("\n")}]}],generationConfig:{maxOutputTokens:1000,temperature:0.7}})
       });
       const d=await res.json();
-      const text=d.content?.map(b=>b.text||"").join("")||"Sorry, couldn't get a response.";
+      const text=d.candidates?.[0]?.content?.parts?.[0]?.text||"Sorry, couldn't get a response.";
       setAiMsgs(p=>[...p,{role:"assistant",content:text}]);
     } catch { setAiMsgs(p=>[...p,{role:"assistant",content:"Connection error. Please check the API setup."}]); }
     finally { setLoading(false); }
@@ -182,7 +181,7 @@ function AIPanel({ onClose }) {
     <div style={{height:"100%",display:"flex",flexDirection:"column",background:"#13131a"}}>
       <div style={{padding:"14px 16px",borderBottom:"1px solid #2a2a35",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#4F46E5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>✦</div>
-        <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>AI Assistant</div><div style={{fontSize:11,color:"#6b6b7e"}}>Powered by Claude</div></div>
+        <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>AI Assistant</div><div style={{fontSize:11,color:"#6b6b7e"}}>Powered by Gemini</div></div>
         <button onClick={onClose} style={{background:"none",border:"none",color:"#6b6b7e",cursor:"pointer",fontSize:20,lineHeight:1}}>×</button>
       </div>
       <div style={{flex:1,overflow:"auto",padding:"14px 13px"}}>
@@ -741,7 +740,7 @@ function AppShell() {
             style={{width:"100%",padding:"9px 11px",borderRadius:10,cursor:"pointer",background:"linear-gradient(135deg,#1a1030,#0d1a2e)",border:"1px solid #3d2a6e",color:"#c4b5fd",display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:700}}>
             <span style={{fontSize:14}}>✦</span>
             <span>AI Assistant</span>
-            <span style={{marginLeft:"auto",background:"#4c1d95",color:"#ddd6fe",fontSize:9,padding:"1px 5px",borderRadius:8,fontWeight:700}}>CLAUDE</span>
+            <span style={{marginLeft:"auto",background:"#4c1d95",color:"#ddd6fe",fontSize:9,padding:"1px 5px",borderRadius:8,fontWeight:700}}>GEMINI</span>
           </button>
         </div>
       </aside>

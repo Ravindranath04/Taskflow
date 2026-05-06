@@ -1,8 +1,9 @@
 // src/controllers/profileController.js
 const { z }    = require("zod");
 const prisma   = require("../lib/prisma");
-const Anthropic = require("@anthropic-ai/sdk");
-const client   = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const genAI    = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model    = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 const profileSchema = z.object({
   title:           z.string().optional(),
@@ -91,7 +92,7 @@ const updateMyProfile = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// POST /api/ratings/:taskId  — rate an employee's work on a task
+// POST /api/ratings/:taskId  — rate an employee's work on a task (any team member can rate)
 const rateTask = async (req, res, next) => {
   try {
     const { stars, comment } = z.object({
@@ -101,23 +102,31 @@ const rateTask = async (req, res, next) => {
 
     const task = await prisma.task.findUnique({
       where: { id: req.params.taskId },
-      include: { project: { include: { members: true } } },
+      include: {
+        project: { include: { members: true } },
+        assignee: { select: { id: true, name: true } },
+      },
     });
     if (!task) return res.status(404).json({ error: "Task not found" });
     if (!task.assigneeId) return res.status(400).json({ error: "Task has no assignee" });
     if (task.status !== "DONE") return res.status(400).json({ error: "Can only rate completed tasks" });
 
-    // Only PM/owner can rate
-    const member = task.project.members.find(m => m.userId === req.user.id);
-    if (req.user.role !== "ADMIN" && member?.role !== "owner") {
-      return res.status(403).json({ error: "Only project owner or admin can rate" });
+    // Prevent self-rating
+    if (task.assigneeId === req.user.id) {
+      return res.status(400).json({ error: "Cannot rate your own work" });
+    }
+
+    // Ensure rater is a project member
+    const raterIsMember = task.project.members.some(m => m.userId === req.user.id);
+    if (!raterIsMember && req.user.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only project members or admins can rate tasks" });
     }
 
     const rating = await prisma.taskRating.upsert({
       where:  { taskId_ratedById: { taskId: task.id, ratedById: req.user.id } },
       update: { stars, comment },
       create: { taskId: task.id, ratedUserId: task.assigneeId, ratedById: req.user.id, stars, comment },
-      include: { ratedBy: { select: { name:true, avatar:true } } },
+      include: { ratedBy: { select: { name: true, avatar: true } } },
     });
 
     // Notify the rated person
@@ -126,11 +135,12 @@ const rateTask = async (req, res, next) => {
         userId:  task.assigneeId,
         type:    "TASK_RATED",
         title:   `You received ${stars}⭐ for "${task.title}"`,
-        message: comment || `Rated ${stars} out of 5 stars.`,
+        message: comment || `Rated ${stars} out of 5 stars by ${req.user.name}.`,
+        link:    `/profile/${req.user.id}`,
       },
     });
 
-    // Recalculate performance score
+    // Recalculate performance score for the rated person
     await recalcPerformance(task.assigneeId);
 
     res.json(rating);
@@ -173,10 +183,7 @@ const aiProfileSummary = async (req, res, next) => {
     const avgRating = user.receivedRatings.length
       ? user.receivedRatings.reduce((s,r) => s+r.stars, 0) / user.receivedRatings.length : 0;
 
-    const res2 = await client.messages.create({
-      model: "claude-sonnet-4-20250514", max_tokens: 300,
-      messages: [{ role:"user", content:
-        `Write a 3-sentence professional summary for this employee:
+    const prompt = `Write a 3-sentence professional summary for this employee:
 Name: ${user.name}
 Title: ${p.title}
 Experience: ${p.yearsExperience} years
@@ -187,11 +194,12 @@ Average rating: ${avgRating.toFixed(1)}/5
 Tasks completed: ${p.tasksCompleted} (${p.tasksOnTime} on time)
 Bio: ${p.bio || "Not provided"}
 
-Be professional and highlight their strongest areas.`
-      }],
-    });
+Be professional and highlight their strongest areas.`;
 
-    res.json({ summary: res2.content[0].text });
+    const result = await model.generateContent(prompt);
+    const summary = result.response.text();
+
+    res.json({ summary });
   } catch (err) { next(err); }
 };
 

@@ -48,6 +48,7 @@ export default function TeamPage({ onViewProfile }) {
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:700, fontSize:15, color:"#e2e2e8" }}>{m.name}</div>
                   <div style={{ fontSize:12, color:"#a78bfa", fontWeight:500 }}>{p?.title||m.role}</div>
+                  <div style={{ fontSize:11, color:"#6b6b7e", marginBottom:4 }}>{m.email}</div>
                   <div style={{ fontSize:11, color:"#6b6b7e" }}>{p?.department} · {p?.yearsExperience||0}y exp</div>
                 </div>
                 <div style={{ textAlign:"right" }}>

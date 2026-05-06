@@ -1,12 +1,18 @@
 const { z } = require("zod");
 const prisma = require("../lib/prisma");
 
+const dateString = z.string().optional().nullable().refine(value => {
+  if (value === undefined || value === null || value === "") return true;
+  return !Number.isNaN(Date.parse(value));
+}, { message: "Invalid date" });
+
 const projectSchema = z.object({
-  name:        z.string().min(1).max(100),
-  description: z.string().optional(),
-  color:       z.string().optional(),
-  status:      z.enum(["PLANNING","ACTIVE","ON_HOLD","COMPLETED","ARCHIVED"]).optional(),
-  deadline:    z.string().datetime().optional().nullable(),
+  name:         z.string().min(1).max(100),
+  description:  z.string().optional(),
+  color:        z.string().optional(),
+  status:       z.enum(["PLANNING","ACTIVE","ON_HOLD","COMPLETED","ARCHIVED"]).optional(),
+  deadline:     dateString,
+  memberEmails: z.string().optional().nullable(),
 });
 
 const include = {
@@ -18,8 +24,12 @@ const include = {
 // GET /api/projects
 const getAll = async (req, res, next) => {
   try {
+    const whereClause = req.user.role === "ADMIN" 
+      ? {} 
+      : { members: { some: { userId: req.user.id } } };
+
     const projects = await prisma.project.findMany({
-      where: { members: { some: { userId: req.user.id } } },
+      where: whereClause,
       include,
       orderBy: { createdAt: "desc" },
     });
@@ -56,12 +66,36 @@ const getOne = async (req, res, next) => {
 const create = async (req, res, next) => {
   try {
     const data = projectSchema.parse(req.body);
+    const { memberEmails, ...projectData } = data;
+
+    const emailList = memberEmails
+      ? memberEmails.split(",").map(email => email.trim().toLowerCase()).filter(Boolean)
+      : [];
+
+    const memberQuery = emailList.length > 0
+      ? { email: { in: emailList } }
+      : { role: "MEMBER" };
+
+    const teamMembers = await prisma.user.findMany({
+      where: memberQuery,
+      select: { id: true },
+    });
+
+    const memberCreates = teamMembers
+      .filter(user => user.id !== req.user.id)
+      .map(user => ({ userId: user.id, role: "member" }));
+
     const project = await prisma.project.create({
       data: {
-        ...data,
-        deadline: data.deadline ? new Date(data.deadline) : null,
-        ownerId:  req.user.id,
-        members:  { create: [{ userId: req.user.id, role: "owner" }] },
+        ...projectData,
+        deadline: projectData.deadline ? new Date(projectData.deadline) : null,
+        ownerId: req.user.id,
+        members: {
+          create: [
+            { userId: req.user.id, role: "owner" },
+            ...memberCreates,
+          ],
+        },
       },
       include,
     });
@@ -91,7 +125,9 @@ const remove = async (req, res, next) => {
   try {
     const project = await prisma.project.findUnique({ where: { id: req.params.id } });
     if (!project) return res.status(404).json({ error: "Project not found" });
-    if (project.ownerId !== req.user.id) return res.status(403).json({ error: "Only the owner can delete a project" });
+    if (project.ownerId !== req.user.id && req.user.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only the owner or an admin can delete a project" });
+    }
 
     await prisma.project.delete({ where: { id: req.params.id } });
     res.json({ message: "Project deleted" });

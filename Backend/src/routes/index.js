@@ -52,6 +52,8 @@ router.post("/ratings/:taskId", authenticate, profile.rateTask);
 // ── AI + Smart Features ───────────────────────────────────────────────────────
 router.post("/ai/chat",                   authenticate, ai.chat);
 router.post("/ai/generate-tasks",         authenticate, ai.generateTasks);
+router.post("/ai/parse-task",             authenticate, ai.parseTask);
+router.post("/ai/create-project",         authenticate, ai.createProject);
 router.post("/ai/auto-assign/:taskId",    authenticate, ai.autoAssign);
 router.get ("/ai/suggest-assign/:taskId", authenticate, ai.suggestAssign);
 router.post("/ai/summarize/:projectId",   authenticate, ai.summarize);

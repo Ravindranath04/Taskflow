@@ -6,7 +6,7 @@ const { autoAssignTask } = require("./assignmentEngine");
 
 // ─── Gemini helper ────────────────────────────────────────────────────────────
 async function gemini(prompt, systemPrompt = "") {
-  const url  = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const url  = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
   const res  = await fetch(url, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
@@ -32,14 +32,16 @@ ACTION: ASSIGN_TASK        | taskId:<id> | userId:<id>
 ACTION: MOVE_TASK          | taskId:<id> | status:TODO|IN_PROGRESS|REVIEW|DONE
 ACTION: ASSIGN_ALL_UNASSIGNED | projectId:<id> | filterTag:<tag> | userId:<id>
 ACTION: MOVE_ALL           | fromStatus:REVIEW | toStatus:DONE | projectId:<id>
+ACTION: CREATE_PROJECT     | name:<text> | description:<text> | deadline:<YYYY-MM-DD or days_from_now> | color:<hex> | memberEmails:<email1,email2>
+ACTION: CREATE_TASK        | projectId:<id> | title:<text> | description:<text> | priority:TODO|IN_PROGRESS|REVIEW|DONE | tags:<tag1,tag2> | dueDate:<YYYY-MM-DD> | deadline:<YYYY-MM-DD or days_from_now> | assigneeId:<id>
 ACTION: CREATE_SPRINT      | projectId:<id> | count:5
 ACTION: REASSIGN_OVERLOADED| projectId:<id>
 
 Examples:
-"Assign all unassigned backend tasks to Arjun" → ACTION: ASSIGN_ALL_UNASSIGNED | projectId:xxx | filterTag:backend | userId:yyy
-"Move everything in review to done"            → ACTION: MOVE_ALL | fromStatus:REVIEW | toStatus:DONE | projectId:xxx
-"Create a sprint with 5 highest priority tasks"→ ACTION: CREATE_SPRINT | projectId:xxx | count:5
+"Create a new project for website redesign and add the core backlog" → ACTION: CREATE_PROJECT | name:Website Redesign | description:Modernize UI and launch MVP | deadline:30 | color:#4f46e5
+"Create a task for a login page and assign it to the best frontend developer" → ACTION: CREATE_TASK | projectId:xxx | title:Login flow UI | description:Build login page and validation | priority:HIGH | tags:frontend,auth | dueDate:2025-06-01
 
+If the user asks to create a task without specifying assigneeId, auto-assign the best available member by experience and workload.
 For questions like "who is closest to finishing" — answer in text, no ACTION needed.`;
 
 // ─── PARSE ACTION LINES ───────────────────────────────────────────────────────
@@ -51,7 +53,8 @@ function parseActions(text) {
       const command = parts[0];
       const params  = {};
       parts.slice(1).forEach(p => {
-        const [k, v] = p.split(":").map(s => s.trim());
+        const [k, ...rest] = p.split(":");
+        const v = rest.join(":").trim();
         if (k && v) params[k] = v;
       });
       return { command, params };
@@ -59,7 +62,7 @@ function parseActions(text) {
 }
 
 // ─── EXECUTE ONE COMMAND ──────────────────────────────────────────────────────
-async function executeCommand(action, projectId) {
+async function executeCommand(action, projectId, userId) {
   const { command, params } = action;
   const results = [];
 
@@ -125,6 +128,127 @@ async function executeCommand(action, projectId) {
         break;
       }
 
+      case "CREATE_PROJECT": {
+        const parseDateField = (value) => {
+          if (!value) return null;
+          const trimmed = value.trim();
+          const numeric = Number(trimmed);
+          if (!Number.isNaN(numeric) && /^\d+$/.test(trimmed)) {
+            const d = new Date();
+            d.setDate(d.getDate() + numeric);
+            return d;
+          }
+          const parsed = new Date(trimmed);
+          return isNaN(parsed.getTime()) ? null : parsed;
+        };
+
+        const projectData = {
+          name:        params.name || "New project",
+          description: params.description || "",
+          color:       params.color || "#7C3AED",
+          deadline:    parseDateField(params.deadline),
+        };
+
+        if (!projectData.name) {
+          results.push("✗ CREATE_PROJECT requires a name.");
+          break;
+        }
+        if (!userId) {
+          results.push("✗ CREATE_PROJECT requires an authenticated user.");
+          break;
+        }
+
+        const project = await prisma.project.create({
+          data: {
+            name:        projectData.name,
+            description: projectData.description,
+            color:       projectData.color,
+            deadline:    projectData.deadline,
+            ownerId:     userId,
+            members:     { create: [{ userId, role: "owner" }] },
+          },
+        });
+
+        if (params.memberEmails) {
+          const emails = params.memberEmails.split(",").map(e => e.trim()).filter(Boolean);
+          for (const email of emails) {
+            const user = await prisma.user.findUnique({ where: { email } });
+            if (user) {
+              await prisma.projectMember.create({ data: { projectId: project.id, userId: user.id } });
+            }
+          }
+        }
+
+        results.push(`✓ Created project "${project.name}" with id ${project.id}`);
+        break;
+      }
+
+      case "CREATE_TASK": {
+        const parseDateField = (value) => {
+          if (!value) return null;
+          const trimmed = value.trim();
+          const numeric = Number(trimmed);
+          if (!Number.isNaN(numeric) && /^\d+$/.test(trimmed)) {
+            const d = new Date();
+            d.setDate(d.getDate() + numeric);
+            return d;
+          }
+          const parsed = new Date(trimmed);
+          return isNaN(parsed.getTime()) ? null : parsed;
+        };
+
+        const taskData = {
+          title:       params.title || "New task",
+          description: params.description || "",
+          priority:    params.priority || "MEDIUM",
+          tags:        params.tags ? params.tags.split(",").map(t => t.trim()).filter(Boolean) : [],
+          projectId:   params.projectId || projectId,
+          dueDate:     parseDateField(params.dueDate) || parseDateField(params.deadline),
+        };
+
+        if (!taskData.projectId) {
+          results.push("✗ CREATE_TASK requires a valid projectId.");
+          break;
+        }
+
+        const project = await prisma.project.findUnique({ where: { id: taskData.projectId } });
+        if (!project) {
+          results.push(`✗ CREATE_TASK invalid projectId: ${taskData.projectId}`);
+          break;
+        }
+
+        if (!userId) {
+          results.push("✗ CREATE_TASK requires an authenticated user.");
+          break;
+        }
+
+        const task = await prisma.task.create({
+          data: {
+            title:       taskData.title,
+            description: taskData.description,
+            priority:    taskData.priority,
+            tags:        taskData.tags,
+            projectId:   taskData.projectId,
+            creatorId:   userId,
+            dueDate:     taskData.dueDate,
+            assigneeId:  params.assigneeId || null,
+          },
+          include: { assignee: { select: { name:true } }, project: { select: { id:true, name:true } } },
+        });
+
+        if (!params.assigneeId) {
+          const res = await autoAssignTask(task.id, taskData.projectId);
+          if (res) {
+            results.push(`✓ Created and auto-assigned "${task.title}" to ${res.assignedTo.memberName}`);
+          } else {
+            results.push(`✓ Created "${task.title}" but auto-assignment failed.`);
+          }
+        } else {
+          results.push(`✓ Created and assigned "${task.title}" to provided user`);
+        }
+        break;
+      }
+
       case "REASSIGN_OVERLOADED": {
         const pid     = params.projectId || projectId;
         const members = await prisma.projectMember.findMany({ where: { projectId: pid }, include: { user: true } });
@@ -156,7 +280,7 @@ async function executeCommand(action, projectId) {
 }
 
 // ─── MAIN: PROCESS USER MESSAGE ───────────────────────────────────────────────
-async function processNLPCommand(message, projectId, history = []) {
+async function processNLPCommand(message, projectId, history = [], userId) {
   // Build context
   const project = await prisma.project.findUnique({
     where:   { id: projectId },
@@ -181,7 +305,7 @@ Open tasks: ${project.tasks.map(t=>`"${t.title}"(id:${t.id},status:${t.status},p
   // Execute all detected actions
   const executionResults = [];
   for (const action of actions) {
-    const res = await executeCommand(action, projectId);
+    const res = await executeCommand(action, projectId, userId);
     executionResults.push(...res);
   }
 

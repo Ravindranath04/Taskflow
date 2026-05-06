@@ -35,6 +35,8 @@ export const tasksApi = {
 export const aiApi = {
   chat:           (message, projectId, history)         => api.post("/ai/chat", { message, projectId, history, executeCommands: true }),
   generateTasks:  (description, projectId, autoAssign)  => api.post("/ai/generate-tasks", { description, projectId, autoAssign }),
+  createProject:  (data)                               => api.post("/ai/create-project", data),
+  parseTask:      (text)                               => api.post("/ai/parse-task", { text }),
   autoAssign:     (taskId, projectId)                   => api.post(`/ai/auto-assign/${taskId}`, { projectId }),
   suggestAssign:  (taskId, projectId)                   => api.get(`/ai/suggest-assign/${taskId}?projectId=${projectId}`),
   summarize:      (projectId)                           => api.post(`/ai/summarize/${projectId}`, {}),

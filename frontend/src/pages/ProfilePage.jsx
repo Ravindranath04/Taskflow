@@ -55,6 +55,15 @@ export default function ProfilePage({ userId }) {
 
   useEffect(() => { if (targetId) load(); }, [targetId]);
 
+  // Auto-refresh profile every 10 seconds to show updated ratings
+  useEffect(() => {
+    if (!targetId) return;
+    const interval = setInterval(() => {
+      load();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [targetId]);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -129,6 +138,7 @@ export default function ProfilePage({ userId }) {
               <span style={{ fontSize:11, padding:"2px 8px", borderRadius:20, background:profile.role==="ADMIN"?"#2d1b69":"#1a1a24", color:profile.role==="ADMIN"?"#c4b5fd":"#8888a0", border:"1px solid #2a2a35" }}>{profile.role}</span>
             </div>
             <div style={{ fontSize:14, color:"#a78bfa", fontWeight:600, marginBottom:4 }}>{p?.title || "Team Member"}</div>
+            <div style={{ fontSize:13, color:"#6b6b7e", marginBottom:4 }}>{profile.email}</div>
             <div style={{ fontSize:13, color:"#6b6b7e", marginBottom:8 }}>{p?.department} · {p?.yearsExperience || 0} years experience</div>
             {p?.bio && <div style={{ fontSize:13, color:"#c4c4d0", lineHeight:1.6, maxWidth:500 }}>{p.bio}</div>}
 
@@ -299,7 +309,8 @@ export default function ProfilePage({ userId }) {
           {(profile.assignedTasks||[]).length === 0 && <div style={{ color:"#3a3a4e", fontSize:13 }}>No tasks yet</div>}
           {(profile.assignedTasks||[]).map(t => {
             const statusColor = { TODO:"#6b7280", IN_PROGRESS:"#3b82f6", REVIEW:"#f59e0b", DONE:"#22c55e" };
-            const canRate = !isOwn && t.status==="DONE" && currentUser?.role==="ADMIN" && !t.ratings?.length;
+            const hasRatedByMe = t.ratings?.some(r => r.ratedById === currentUser?.id);
+            const canRate = !isOwn && t.status==="DONE" && !hasRatedByMe;
             return (
               <div key={t.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:"1px solid #1e1e2e" }}>
                 <div style={{ width:8, height:8, borderRadius:"50%", background:statusColor[t.status]||"#6b7280", flexShrink:0 }}/>
